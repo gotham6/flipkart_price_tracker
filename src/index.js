@@ -20,6 +20,12 @@ const priceSelectorCandidates = [
   "div[class*='Nx9bqj']",
   "div[class*='_30jeq3']"
 ];
+const productReadySelectorCandidates = [
+  ...priceSelectorCandidates,
+  "h1",
+  "span.VU-ZEz",
+  'meta[property="og:title"]'
+];
 
 async function main() {
   const args = new Set(process.argv.slice(2));
@@ -126,13 +132,20 @@ async function inspectProduct(context, item) {
   const page = await context.newPage();
 
   try {
-    await page.goto(item.url, {
-      waitUntil: "domcontentloaded",
-      timeout: 90000
+    await page.route("**/*", (route) => {
+      const resourceType = route.request().resourceType();
+      if (resourceType === "image" || resourceType === "media" || resourceType === "font") {
+        return route.abort();
+      }
+
+      return route.continue();
     });
 
+    await navigateToProductPage(page, item.url);
+
     await dismissLoginPrompt(page);
-    await page.waitForTimeout(3000);
+    await waitForProductSignals(page);
+    await page.waitForTimeout(1500);
 
     const product = await page.evaluate((selectors) => {
       function normalizePrice(raw) {
@@ -238,6 +251,45 @@ async function inspectProduct(context, item) {
   } finally {
     await page.close();
   }
+}
+
+async function navigateToProductPage(page, url) {
+  const navigationAttempts = [
+    { waitUntil: "domcontentloaded", timeout: 45000 },
+    { waitUntil: "commit", timeout: 30000 }
+  ];
+
+  let lastError;
+
+  for (const attempt of navigationAttempts) {
+    try {
+      await page.goto(url, attempt);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isTimeoutError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+async function waitForProductSignals(page) {
+  try {
+    await page.waitForFunction(
+      (selectors) => selectors.some((selector) => document.querySelector(selector)),
+      productReadySelectorCandidates,
+      { timeout: 15000 }
+    );
+  } catch {
+    await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
+  }
+}
+
+function isTimeoutError(error) {
+  return error instanceof Error && /timeout/i.test(error.message);
 }
 
 async function dismissLoginPrompt(page) {
