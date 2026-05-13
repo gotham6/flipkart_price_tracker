@@ -1,0 +1,22 @@
+{
+  "name": "flipkart-price-tracker",
+  "version": "1.0.0",
+  "description": "Track Flipkart product pages and send Telegram alerts when the price changes.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "check": "node src/index.js --once",
+    "watch": "node src/index.js",
+    "test:config": "node src/index.js --validate-config"
+  },
+  "keywords": [
+    "flipkart",
+    "playwright",
+    "telegram",
+    "price-tracker"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.54.2"
+  }
+}
