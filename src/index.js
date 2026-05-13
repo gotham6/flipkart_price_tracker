@@ -255,29 +255,21 @@ async function inspectProduct(context, item) {
 
 async function navigateToProductPage(page, url) {
   const navigationAttempts = [
-    { waitUntil: "domcontentloaded", timeout: 90000 },
-    { waitUntil: "commit", timeout: 90000 }
+    { waitUntil: "domcontentloaded", timeout: 45000 },
+    { waitUntil: "commit", timeout: 30000 }
   ];
-  const maxRetries = 3;
 
-  let lastError = null;
+  let lastError;
 
-  for (let retry = 1; retry <= maxRetries; retry += 1) {
-    for (const attempt of navigationAttempts) {
-      try {
-        await page.goto(url, attempt);
-        return;
-      } catch (error) {
-        lastError = error;
-        if (!isRetriableNavigationError(error)) {
-          throw error;
-        }
+  for (const attempt of navigationAttempts) {
+    try {
+      await page.goto(url, attempt);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isTimeoutError(error)) {
+        throw error;
       }
-    }
-
-    if (retry < maxRetries) {
-      console.warn(`Navigation retry ${retry}/${maxRetries - 1} for ${url}`);
-      await page.waitForTimeout(3000 * retry);
     }
   }
 
@@ -296,8 +288,8 @@ async function waitForProductSignals(page) {
   }
 }
 
-function isRetriableNavigationError(error) {
-  return error instanceof Error && /(timeout|ERR_CONNECTION_TIMED_OUT|ERR_TIMED_OUT|ERR_CONNECTION_RESET|ERR_ABORTED)/i.test(error.message);
+function isTimeoutError(error) {
+  return error instanceof Error && /timeout/i.test(error.message);
 }
 
 async function dismissLoginPrompt(page) {
