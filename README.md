@@ -1,6 +1,6 @@
-# Flipkart Price Tracker
+# Flipkart and Amazon Price Tracker
 
-Tracks exact Flipkart product pages with Playwright and sends a Telegram alert when the observed price changes.
+Tracks exact Flipkart and Amazon product pages with Playwright and sends a Telegram alert when the observed price changes.
 
 ## Behavior
 
@@ -26,7 +26,7 @@ Tracks exact Flipkart product pages with Playwright and sends a Telegram alert w
    cp .env.example .env
    ```
 
-3. Replace the dummy links in `watchlist.json` with exact Flipkart product URLs.
+3. Replace the dummy links in `watchlist.json` with exact Flipkart or Amazon product URLs.
 
 ## Usage
 

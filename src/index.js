@@ -12,14 +12,66 @@ const statePath = path.join(projectRoot, "state.json");
 const envPath = path.join(projectRoot, ".env");
 const checkIntervalMs = 60 * 60 * 1000;
 
-const priceSelectorCandidates = [
-  '[itemprop="price"]',
-  'meta[property="product:price:amount"]',
-  "div.Nx9bqj",
-  "div._30jeq3",
-  "div[class*='Nx9bqj']",
-  "div[class*='_30jeq3']"
-];
+const siteConfigs = {
+  amazon: {
+    name: "Amazon",
+    titleSelectors: [
+      "#productTitle",
+      "h1.a-size-large",
+      "h1 span",
+      'meta[property="og:title"]'
+    ],
+    priceSelectors: [
+      "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen",
+      "#corePrice_feature_div .a-price .a-offscreen",
+      "#apex_desktop .a-price .a-offscreen",
+      "#priceblock_ourprice",
+      "#priceblock_dealprice",
+      "#priceblock_saleprice",
+      ".a-price.aok-align-center .a-offscreen",
+      ".a-price .a-offscreen",
+      '[data-a-color="price"] .a-offscreen',
+      '[data-asin-price]'
+    ],
+    popupSelectors: [
+      '#attach-close_sideSheet-link',
+      'button[aria-label="Close"]',
+      'input[aria-labelledby="attachSiNoCoverage-announce"]'
+    ]
+  },
+  flipkart: {
+    name: "Flipkart",
+    titleSelectors: [
+      "span.VU-ZEz",
+      "h1 span",
+      "h1",
+      'meta[property="og:title"]'
+    ],
+    priceSelectors: [
+      "div.Nx9bqj",
+      "div._30jeq3",
+      "div[class*='Nx9bqj']",
+      "div[class*='_30jeq3']"
+    ],
+    popupSelectors: [
+      'button:has-text("✕")',
+      'button[aria-label="Close"]',
+      'button._2KpZ6l._2doB4z'
+    ]
+  },
+  generic: {
+    name: "Product",
+    titleSelectors: [
+      "h1 span",
+      "h1",
+      'meta[property="og:title"]'
+    ],
+    priceSelectors: [],
+    popupSelectors: [
+      'button[aria-label="Close"]'
+    ]
+  }
+};
 
 async function main() {
   const args = new Set(process.argv.slice(2));
@@ -124,6 +176,7 @@ async function runCheck(env) {
 
 async function inspectProduct(context, item) {
   const page = await context.newPage();
+  const siteConfig = getSiteConfig(item.url);
 
   try {
     await page.goto(item.url, {
@@ -131,10 +184,10 @@ async function inspectProduct(context, item) {
       timeout: 90000
     });
 
-    await dismissLoginPrompt(page);
+    await dismissLoginPrompt(page, siteConfig.popupSelectors);
     await page.waitForTimeout(3000);
 
-    const product = await page.evaluate((selectors) => {
+    const product = await page.evaluate((config) => {
       function normalizePrice(raw) {
         if (!raw) {
           return null;
@@ -149,12 +202,7 @@ async function inspectProduct(context, item) {
       }
 
       function titleFromDom() {
-        const candidates = [
-          document.querySelector("span.VU-ZEz"),
-          document.querySelector("h1 span"),
-          document.querySelector("h1"),
-          document.querySelector('meta[property="og:title"]')
-        ];
+        const candidates = config.titleSelectors.map((selector) => document.querySelector(selector));
 
         for (const node of candidates) {
           if (!node) {
@@ -173,11 +221,17 @@ async function inspectProduct(context, item) {
       function priceFromMetadata() {
         const metaAmount = document.querySelector('meta[property="product:price:amount"]');
         const itemProp = document.querySelector('[itemprop="price"]');
+        const amazonPrice = document.querySelector('meta[name="twitter:data1"]');
         const directValue = metaAmount?.getAttribute("content") ?? itemProp?.getAttribute("content") ?? itemProp?.textContent;
 
         const parsedDirectValue = normalizePrice(directValue);
         if (parsedDirectValue !== null) {
           return parsedDirectValue;
+        }
+
+        const parsedAmazonPrice = normalizePrice(amazonPrice?.getAttribute("content") ?? "");
+        if (parsedAmazonPrice !== null) {
+          return parsedAmazonPrice;
         }
 
         const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
@@ -203,7 +257,7 @@ async function inspectProduct(context, item) {
       }
 
       function priceFromSelectors() {
-        for (const selector of selectors) {
+        for (const selector of config.priceSelectors) {
           const node = document.querySelector(selector);
           if (!node) {
             continue;
@@ -225,10 +279,10 @@ async function inspectProduct(context, item) {
       const name = titleFromDom();
 
       return { name, price };
-    }, priceSelectorCandidates);
+    }, siteConfig);
 
     if (!product.price || Number.isNaN(product.price)) {
-      throw new Error("Could not extract a product price from the page.");
+      throw new Error(`Could not extract a product price from the ${siteConfig.name} page.`);
     }
 
     return {
@@ -240,13 +294,7 @@ async function inspectProduct(context, item) {
   }
 }
 
-async function dismissLoginPrompt(page) {
-  const closeButtonSelectors = [
-    'button:has-text("✕")',
-    'button[aria-label="Close"]',
-    'button._2KpZ6l._2doB4z'
-  ];
-
+async function dismissLoginPrompt(page, closeButtonSelectors) {
   for (const selector of closeButtonSelectors) {
     const button = page.locator(selector).first();
     if (await button.count()) {
@@ -260,6 +308,26 @@ async function dismissLoginPrompt(page) {
   }
 }
 
+function getSiteConfig(rawUrl) {
+  let hostname = "";
+
+  try {
+    hostname = new URL(rawUrl).hostname.toLowerCase();
+  } catch {
+    return siteConfigs.generic;
+  }
+
+  if (hostname.includes("amazon.")) {
+    return siteConfigs.amazon;
+  }
+
+  if (hostname.includes("flipkart.")) {
+    return siteConfigs.flipkart;
+  }
+
+  return siteConfigs.generic;
+}
+
 async function sendTelegramAlert(env, payload) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
     console.warn("Telegram is not configured; skipping alert.");
@@ -267,7 +335,7 @@ async function sendTelegramAlert(env, payload) {
   }
 
   const message = [
-    "Flipkart price change detected",
+    "Price change detected",
     `${payload.name}`,
     `Old price: Rs ${payload.oldPrice}`,
     `New price: Rs ${payload.newPrice}`,
